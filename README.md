@@ -14,7 +14,9 @@ Both approaches yield interesting mathematical properties that can be explored t
 
 ## Components
 
-- **polygon_projection.py**: Unified high-level API for polygon projections with integrated analytical and sampling methods
+- **polygon_projection.py**: Unified high-level API for polygon projections
+- **projection_sampling.py**: Analytical and sampling methods for interior points
+- **edge_projection.py**: Analytical and sampling methods for boundary points
 - **interactive_projection.py**: Interactive visualization tool with real-time computations
 - **test_polygon_projection.py**: Comprehensive test suite validating the mathematical implementations
 
