@@ -98,6 +98,81 @@ class PolygonProjection:
                 self.vertices, self.direction, n=n_samples, rng=self.rng)
             
         return float(np.mean(distances))
+        
+    def monte_carlo_generator(self, n_samples=10000, batch_size=1000, yield_interval=10):
+        """
+        Generator that performs Monte Carlo sampling and yields intermediate results.
+        
+        This function samples points from the polygon (interior or boundary based on
+        the region setting), computes projected distances, and periodically yields
+        the current statistics, allowing for real-time UI updates.
+        
+        Parameters
+        ----------
+        n_samples : int, optional
+            Total number of samples to generate. Default is 10000.
+        batch_size : int, optional
+            Size of batches to process. Default is 1000.
+        yield_interval : int, optional
+            Number of batches after which to yield results. Default is 10.
+            
+        Yields
+        ------
+        dict
+            Dictionary containing:
+            - 'samples_processed': Number of samples processed so far
+            - 'total_samples': Total number of samples to process
+            - 'projected_distance': Current mean of projected distances
+            - 'average_distance': Current mean of Euclidean distances
+        """
+        # Setup for storing accumulated results
+        projected_distances = []
+        euclidean_distances = []
+        samples_processed = 0
+        batches_since_yield = 0
+        
+        # Process in batches to allow periodic updates
+        for i in range(0, n_samples, batch_size):
+            # Determine the actual batch size (might be smaller for the last batch)
+            current_batch_size = min(batch_size, n_samples - i)
+            
+            # Generate sample points
+            if self.region == PolygonRegion.INTERIOR:
+                # Sample from interior
+                points1 = [ps.sample_point_in_convex_polygon(self.vertices, self.rng) 
+                           for _ in range(current_batch_size)]
+                points2 = [ps.sample_point_in_convex_polygon(self.vertices, self.rng) 
+                           for _ in range(current_batch_size)]
+            else:
+                # Sample from boundary
+                points1 = [ep.sample_point_on_boundary(self.vertices, self.rng) 
+                           for _ in range(current_batch_size)]
+                points2 = [ep.sample_point_on_boundary(self.vertices, self.rng) 
+                           for _ in range(current_batch_size)]
+            
+            # Calculate projections and distances for each pair
+            for p1, p2 in zip(points1, points2):
+                # Projected distance
+                proj1 = ps.project_point_to_direction(p1, self.direction)
+                proj2 = ps.project_point_to_direction(p2, self.direction)
+                projected_distances.append(abs(proj1 - proj2))
+                
+                # Euclidean distance
+                euclidean_distances.append(np.linalg.norm(p1 - p2))
+            
+            # Update the number of processed samples
+            samples_processed += current_batch_size
+            batches_since_yield += 1
+            
+            # Yield intermediate results periodically
+            if batches_since_yield >= yield_interval or samples_processed == n_samples:
+                yield {
+                    'samples_processed': samples_processed,
+                    'total_samples': n_samples,
+                    'projected_distance': float(np.mean(projected_distances)),
+                    'average_distance': float(np.mean(euclidean_distances))
+                }
+                batches_since_yield = 0
     
     def compare_methods(self, n_samples=10000):
         """

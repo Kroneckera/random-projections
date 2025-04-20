@@ -487,15 +487,11 @@ class InteractivePolygonProjection:
             print(f"Error processing results queue: {e}")
     
     def monte_carlo_worker(self):
-        """Background worker thread to run Monte Carlo calculations with progress updates."""
+        """Background worker thread to run Monte Carlo calculations using generators for better progress reporting."""
         try:
             # Get number of samples from logarithmic slider (10^slider_val)
             log_val = self.samples_slider.val
             self.n_samples = int(10**log_val)
-            
-            # Pre-allocate result containers
-            batch_size = min(10000, max(100, self.n_samples // 20))  # 5% increments or at least 100
-            num_batches = max(1, self.n_samples // batch_size)
             
             # Initialize PolygonProjection objects
             interior_proj = PolygonProjection(
@@ -509,71 +505,82 @@ class InteractivePolygonProjection:
                 seed=43
             )
             
-            # For averaging results across batches
-            interior_proj_total = 0
-            interior_avg_total = 0
-            boundary_proj_total = 0
-            boundary_avg_total = 0
-            samples_processed = 0
+            # Calculate batch size based on total samples
+            batch_size = min(1000, max(100, self.n_samples // 100))  # Dynamic batch size
+            yield_interval = 2  # Yield after processing every 2 batches
             
-            # Process in batches to update progress
-            for i in range(num_batches):
+            # Create generators for interior and boundary calculations
+            interior_generator = interior_proj.monte_carlo_generator(
+                n_samples=self.n_samples, 
+                batch_size=batch_size,
+                yield_interval=yield_interval
+            )
+            boundary_generator = boundary_proj.monte_carlo_generator(
+                n_samples=self.n_samples,
+                batch_size=batch_size,
+                yield_interval=yield_interval
+            )
+            
+            # Process both generators in parallel - interleaving their results
+            interior_done = False
+            boundary_done = False
+            interior_results = None
+            boundary_results = None
+            
+            # Loop until both generators are done
+            while not (interior_done and boundary_done):
                 if self.stop_requested:
                     # Early termination if stop was requested
                     break
                 
-                # Process a batch
-                samples_in_batch = min(batch_size, self.n_samples - samples_processed)
+                # Get next results from interior generator
+                if not interior_done:
+                    try:
+                        interior_results = next(interior_generator)
+                    except StopIteration:
+                        interior_done = True
                 
-                # Interior projections
-                distances = interior_proj.monte_carlo_expected_distance(samples_in_batch)
-                interior_proj_total += distances * samples_in_batch
+                # Get next results from boundary generator
+                if not boundary_done:
+                    try:
+                        boundary_results = next(boundary_generator)
+                    except StopIteration:
+                        boundary_done = True
                 
-                # Interior average distances
-                avg_distances = interior_proj.average_distance_monte_carlo(samples_in_batch)
-                interior_avg_total += avg_distances * samples_in_batch
-                
-                # Boundary projections
-                distances = boundary_proj.monte_carlo_expected_distance(samples_in_batch)
-                boundary_proj_total += distances * samples_in_batch
-                
-                # Boundary average distances
-                avg_distances = boundary_proj.average_distance_monte_carlo(samples_in_batch)
-                boundary_avg_total += avg_distances * samples_in_batch
-                
-                # Update progress and processed count
-                samples_processed += samples_in_batch
-                progress = int(100 * samples_processed / self.n_samples)
-                
-                # Queue progress update (the timer will pick this up on the main thread)
-                self.results_queue.put({'type': 'progress', 'value': progress})
-                
-                # Queue intermediate results every few batches or at the end
-                if samples_processed > 0 and (i % 2 == 0 or i == num_batches - 1):
+                # Update UI if we have results from both
+                if interior_results and boundary_results:
+                    # Calculate overall progress as average of both generators
+                    total_processed = (interior_results['samples_processed'] + 
+                                      boundary_results['samples_processed'])
+                    total_samples = (interior_results['total_samples'] + 
+                                    boundary_results['total_samples'])
+                    progress = int(100 * total_processed / total_samples)
+                    
+                    # Queue the new progress for UI update
+                    self.results_queue.put({
+                        'type': 'progress',
+                        'value': progress
+                    })
+                    
+                    # Queue the current calculation results for UI update
                     self.results_queue.put({
                         'type': 'results',
-                        'interior_proj': interior_proj_total / samples_processed,
-                        'interior_avg': interior_avg_total / samples_processed,
-                        'boundary_proj': boundary_proj_total / samples_processed,
-                        'boundary_avg': boundary_avg_total / samples_processed
+                        'interior_proj': interior_results['projected_distance'],
+                        'interior_avg': interior_results['average_distance'],
+                        'boundary_proj': boundary_results['projected_distance'],
+                        'boundary_avg': boundary_results['average_distance']
                     })
                 
-                # Small sleep to prevent the thread from hogging all CPU
+                # Small sleep to prevent CPU hogging
                 time.sleep(0.01)
             
-            # Final update if not stopped
-            if not self.stop_requested and samples_processed > 0:
-                # Queue final results
+            # Final progress update if not stopped
+            if not self.stop_requested:
+                # Ensure progress bar shows 100%
                 self.results_queue.put({
-                    'type': 'results',
-                    'interior_proj': interior_proj_total / samples_processed,
-                    'interior_avg': interior_avg_total / samples_processed,
-                    'boundary_proj': boundary_proj_total / samples_processed,
-                    'boundary_avg': boundary_avg_total / samples_processed
+                    'type': 'progress',
+                    'value': 100
                 })
-                
-                # Queue final progress update
-                self.results_queue.put({'type': 'progress', 'value': 100})
             
         except Exception as e:
             # Queue error message
