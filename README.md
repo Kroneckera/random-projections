@@ -27,6 +27,7 @@ For a convex polygon and a direction vector, the tool calculates:
 
 - The exact probability density function of projections
 - The exact expected absolute difference E[|X-Y|] between two random points' projections
+- The exact average Euclidean distance E[||X-Y||] between random points (over all directions)
 - High-accuracy numerical integration using Gauss-Legendre quadrature
 - Polygon geometric properties (area and perimeter)
 - Monte Carlo approximations of expected distances with configurable sample sizes

@@ -17,6 +17,7 @@ import numpy as np
 from enum import Enum
 import projection_sampling as ps
 import edge_projection as ep
+import piecewise_integration as pi
 
 
 class PolygonRegion(Enum):
@@ -174,6 +175,71 @@ class PolygonProjection:
             Perimeter of the polygon.
         """
         return calculate_polygon_perimeter(self.vertices)
+    
+    def average_distance_exact(self, integration_order=16):
+        """
+        Calculate the exact average Euclidean distance E[||X-Y||] between two
+        random points in the specified region (interior or boundary).
+        
+        This is obtained by integrating E[|X-Y|_θ] over all directions θ in [0,π]
+        and dividing by 2, where E[|X-Y|_θ] is the expected absolute difference
+        of projections onto direction θ.
+        
+        Parameters
+        ----------
+        integration_order : int, optional
+            Order of Gauss-Legendre quadrature to use per smooth interval.
+            Higher values give more accurate results. Default is 16.
+            
+        Returns
+        -------
+        float
+            Expected Euclidean distance E[||X-Y||].
+        """
+        # Define the integrand function
+        def projected_mean_abs(vertices, theta):
+            direction = np.array([np.cos(theta), np.sin(theta)])
+            if self.region == PolygonRegion.INTERIOR:
+                pieces = ps.projected_density(vertices, direction)
+                return ps.expected_abs_diff(pieces)
+            else:
+                steps = ep.project_edges(vertices, direction)
+                return ep.boundary_expected_abs_diff(steps)
+        
+        # Compute the integral and divide by 2
+        integral = pi.expected_distance_interior_exact(
+            self.vertices, projected_mean_abs, order=integration_order
+        )
+        return 0.5 * integral
+    
+    def average_distance_monte_carlo(self, n_samples=10000):
+        """
+        Estimate the average Euclidean distance E[||X-Y||] between two random
+        points in the specified region (interior or boundary) using Monte Carlo.
+        
+        Parameters
+        ----------
+        n_samples : int, optional
+            Number of point pairs to sample. Default is 10000.
+            
+        Returns
+        -------
+        float
+            Monte Carlo estimate of E[||X-Y||].
+        """
+        distances = []
+        
+        for _ in range(n_samples):
+            if self.region == PolygonRegion.INTERIOR:
+                p1 = ps.sample_point_in_convex_polygon(self.vertices, self.rng)
+                p2 = ps.sample_point_in_convex_polygon(self.vertices, self.rng)
+            else:
+                p1 = ep.sample_point_on_boundary(self.vertices, self.rng)
+                p2 = ep.sample_point_on_boundary(self.vertices, self.rng)
+            
+            distances.append(np.linalg.norm(p1 - p2))
+        
+        return float(np.mean(distances))
 
 
 def calculate_polygon_area(vertices):
@@ -249,16 +315,36 @@ if __name__ == "__main__":
     hexagon = generate_regular_polygon(n_sides=6)
     direction = [1.0, 0.5]
     
-    # Compare interior vs boundary projections
+    # Compare interior vs boundary projections for a specific direction
     results = []
     for region in [PolygonRegion.INTERIOR, PolygonRegion.BOUNDARY]:
         proj = PolygonProjection(hexagon, direction, region=region, seed=42)
         results.append(proj.compare_methods(n_samples=100000))
     
-    # Print results 
-    print("\nExpected distance comparisons:")
+    # Print projection results for the specific direction
+    print("\nExpected projected distance comparisons (direction-specific):")
     print("-" * 60)
     print(f"{'Region':<10} {'Exact':<15} {'Monte Carlo':<15} {'Rel Error':<15}")
     print("-" * 60)
     for r in results:
         print(f"{r['region']:<10} {r['exact']:<15.6f} {r['monte_carlo']:<15.6f} {r['relative_error']:<15.6e}")
+    
+    # Calculate and compare average Euclidean distances (over all directions)
+    print("\nAverage Euclidean distance results:")
+    print("-" * 60)
+    print(f"{'Region':<10} {'Exact':<15} {'Monte Carlo':<15} {'Rel Error':<15}")
+    print("-" * 60)
+    
+    for region in [PolygonRegion.INTERIOR, PolygonRegion.BOUNDARY]:
+        proj = PolygonProjection(hexagon, direction, region=region, seed=42)
+        
+        # Calculate exact average distance
+        exact_avg = proj.average_distance_exact(integration_order=20)
+        
+        # Estimate with Monte Carlo
+        mc_avg = proj.average_distance_monte_carlo(n_samples=50000)
+        
+        # Calculate relative error
+        rel_error = abs(exact_avg - mc_avg) / exact_avg
+        
+        print(f"{region.value:<10} {exact_avg:<15.6f} {mc_avg:<15.6f} {rel_error:<15.6e}")
