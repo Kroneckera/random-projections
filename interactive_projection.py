@@ -12,11 +12,82 @@ This tool allows users to:
 
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.patches import Polygon as MplPolygon
+from matplotlib.patches import Polygon as MplPolygon, Rectangle
 from matplotlib.lines import Line2D
 from matplotlib.widgets import Button, RadioButtons, Slider
 import matplotlib.gridspec as gridspec
 from polygon_projection import PolygonProjection, PolygonRegion, generate_regular_polygon
+import threading
+import time
+
+
+class SimpleProgressBar:
+    """A simple progress bar widget for matplotlib."""
+    
+    def __init__(self, ax, valmin=0, valmax=100):
+        """
+        Initialize a simple progress bar.
+        
+        Parameters
+        ----------
+        ax : matplotlib.axes.Axes
+            The axes to draw the progress bar on.
+        valmin : float, optional
+            Minimum value of the progress bar. Default is 0.
+        valmax : float, optional
+            Maximum value of the progress bar. Default is 100.
+        """
+        self.ax = ax
+        self.valmin = valmin
+        self.valmax = valmax
+        self.val = valmin
+        
+        # Create the progress bar rectangle
+        self.rect = Rectangle((0, 0), 0, 1, color='blue', alpha=0.6)
+        self.ax.add_patch(self.rect)
+        
+        # Create the background rectangle
+        self.background = Rectangle((0, 0), 1, 1, color='gray', alpha=0.3)
+        self.ax.add_patch(self.background)
+        
+        # Remove tick marks and spines
+        self.ax.set_xticks([])
+        self.ax.set_yticks([])
+        for spine in self.ax.spines.values():
+            spine.set_visible(False)
+        
+        # Set the limits
+        self.ax.set_xlim(0, 1)
+        self.ax.set_ylim(0, 1)
+        
+        # Add a percentage label
+        self.text = self.ax.text(0.5, 0.5, "0%", 
+                                ha='center', va='center',
+                                fontweight='bold')
+    
+    def set_val(self, val):
+        """
+        Set the value of the progress bar.
+        
+        Parameters
+        ----------
+        val : float
+            Value between valmin and valmax to set the progress bar to.
+        """
+        self.val = max(self.valmin, min(self.valmax, val))
+        
+        # Convert to a fraction between 0 and 1
+        fraction = (self.val - self.valmin) / (self.valmax - self.valmin)
+        
+        # Update the width of the rectangle
+        self.rect.set_width(fraction)
+        
+        # Update the percentage text
+        percentage = int(fraction * 100)
+        self.text.set_text(f"{percentage}%")
+        
+        # Redraw the canvas
+        self.ax.figure.canvas.draw_idle()
 
 
 def is_convex(vertices):
@@ -181,10 +252,24 @@ class InteractivePolygonProjection:
         self.samples_slider.on_changed(logarithmic_update)
         self.n_samples = 100000
         
+        # Progress bar for Monte Carlo calculations
+        progress_ax = plt.axes([0.25, 0.15, 0.35, 0.03])
+        self.progress_bar = SimpleProgressBar(progress_ax, 0, 100)
+        self.progress_bar.set_val(0)
+        
         # Monte Carlo calculation button
-        mc_button_ax = plt.axes([0.65, 0.15, 0.25, 0.05])
+        mc_button_ax = plt.axes([0.65, 0.15, 0.15, 0.05])
         self.mc_button = Button(mc_button_ax, 'Calculate Monte Carlo')
         self.mc_button.on_clicked(self.calculate_monte_carlo)
+        
+        # Stop button for Monte Carlo calculations
+        stop_button_ax = plt.axes([0.82, 0.15, 0.08, 0.05])
+        self.stop_button = Button(stop_button_ax, 'Stop')
+        self.stop_button.on_clicked(self.stop_monte_carlo)
+        
+        # Calculation status
+        self.calculating = False
+        self.stop_requested = False
         
         # Buttons
         reset_ax = plt.axes([0.05, 0.05, 0.15, 0.05])
@@ -306,45 +391,168 @@ class InteractivePolygonProjection:
             self.avg_distances['interior'] = interior_proj.average_distance_exact()
             self.avg_distances['boundary'] = boundary_proj.average_distance_exact()
     
-    def calculate_monte_carlo(self, event):
-        """Calculate Monte Carlo approximations for both projected and average distances."""
+    def monte_carlo_worker(self):
+        """Background worker thread to run Monte Carlo calculations with progress updates."""
         try:
-            if len(self.vertices) >= 3 and np.linalg.norm(self.direction) > 0:
-                # Get number of samples from logarithmic slider (10^slider_val)
-                log_val = self.samples_slider.val
-                self.n_samples = int(10**log_val)
+            # Reset progress
+            self.progress_bar.set_val(0)
+            self.fig.canvas.draw_idle()
+            
+            # Get number of samples from logarithmic slider (10^slider_val)
+            log_val = self.samples_slider.val
+            self.n_samples = int(10**log_val)
+            
+            # Pre-allocate result containers
+            batch_size = min(10000, max(100, self.n_samples // 20))  # 5% increments or at least 100
+            num_batches = self.n_samples // batch_size
+            
+            # Initialize PolygonProjection objects
+            interior_proj = PolygonProjection(
+                self.vertices, self.direction, 
+                region=PolygonRegion.INTERIOR,
+                seed=42
+            )
+            boundary_proj = PolygonProjection(
+                self.vertices, self.direction, 
+                region=PolygonRegion.BOUNDARY,
+                seed=43
+            )
+            
+            # For averaging results across batches
+            interior_proj_total = 0
+            interior_avg_total = 0
+            boundary_proj_total = 0
+            boundary_avg_total = 0
+            samples_processed = 0
+            
+            # Process in batches to update progress
+            for i in range(num_batches):
+                if self.stop_requested:
+                    # Early termination if stop was requested
+                    self.stop_requested = False
+                    self.calculating = False
+                    self.progress_bar.set_val(0)
+                    return
                 
-                # Calculate for interior
-                interior_proj = PolygonProjection(
-                    self.vertices, self.direction, 
-                    region=PolygonRegion.INTERIOR,
-                    seed=42
-                )
-                # Projected distance
-                interior_mc_proj = interior_proj.monte_carlo_expected_distance(self.n_samples)
-                self.mc_results['interior_proj'] = interior_mc_proj
-                # Average distance across all directions
-                interior_mc_avg = interior_proj.average_distance_monte_carlo(self.n_samples)
-                self.mc_results['interior_avg'] = interior_mc_avg
+                # Process a batch
+                samples_in_batch = min(batch_size, self.n_samples - samples_processed)
                 
-                # Calculate for boundary
-                boundary_proj = PolygonProjection(
-                    self.vertices, self.direction, 
-                    region=PolygonRegion.BOUNDARY,
-                    seed=42
-                )
-                # Projected distance
-                boundary_mc_proj = boundary_proj.monte_carlo_expected_distance(self.n_samples)
-                self.mc_results['boundary_proj'] = boundary_mc_proj
-                # Average distance across all directions
-                boundary_mc_avg = boundary_proj.average_distance_monte_carlo(self.n_samples)
-                self.mc_results['boundary_avg'] = boundary_mc_avg
+                # Interior projections
+                distances = interior_proj.monte_carlo_expected_distance(samples_in_batch)
+                interior_proj_total += distances * samples_in_batch
                 
-                # Update display
-                self.update_results()
+                # Interior average distances
+                avg_distances = interior_proj.average_distance_monte_carlo(samples_in_batch)
+                interior_avg_total += avg_distances * samples_in_batch
                 
+                # Boundary projections
+                distances = boundary_proj.monte_carlo_expected_distance(samples_in_batch)
+                boundary_proj_total += distances * samples_in_batch
+                
+                # Boundary average distances
+                avg_distances = boundary_proj.average_distance_monte_carlo(samples_in_batch)
+                boundary_avg_total += avg_distances * samples_in_batch
+                
+                # Update progress and processed count
+                samples_processed += samples_in_batch
+                progress = int(100 * samples_processed / self.n_samples)
+                
+                # Update the progress bar safely from the worker thread
+                def update_progress():
+                    self.progress_bar.set_val(progress)
+                    # Also update results as we go for real-time feedback
+                    if i % 2 == 0:  # Update every other batch to avoid excessive redrawing
+                        self.mc_results['interior_proj'] = interior_proj_total / samples_processed
+                        self.mc_results['interior_avg'] = interior_avg_total / samples_processed
+                        self.mc_results['boundary_proj'] = boundary_proj_total / samples_processed
+                        self.mc_results['boundary_avg'] = boundary_avg_total / samples_processed
+                        self.update_results()
+                
+                # Schedule the UI update on the main thread
+                plt.gcf().canvas.flush_events()
+                plt.gcf().canvas.draw_idle()
+                update_progress()
+                plt.gcf().canvas.flush_events()
+                
+                # Slight delay to allow UI updates
+                time.sleep(0.01)
+            
+            # Store final results properly averaged
+            if samples_processed > 0:
+                self.mc_results['interior_proj'] = interior_proj_total / samples_processed
+                self.mc_results['interior_avg'] = interior_avg_total / samples_processed
+                self.mc_results['boundary_proj'] = boundary_proj_total / samples_processed
+                self.mc_results['boundary_avg'] = boundary_avg_total / samples_processed
+            
+            # Final update
+            self.progress_bar.set_val(100)
+            self.update_results()
+            
         except Exception as e:
             print(f"Monte Carlo calculation error: {e}")
+        finally:
+            # Always reset the calculation state
+            self.calculating = False
+            self.stop_requested = False
+            # Enable all interactive elements
+            self.enable_interactive_elements()
+    
+    def calculate_monte_carlo(self, event):
+        """Start Monte Carlo calculations in a background thread with progress tracking."""
+        if self.calculating:
+            return  # Already calculating
+        
+        if len(self.vertices) >= 3 and np.linalg.norm(self.direction) > 0:
+            # Set calculation state
+            self.calculating = True
+            self.stop_requested = False
+            
+            # Disable all interactive elements during calculation
+            self.disable_interactive_elements()
+            
+            # Reset progress
+            self.progress_bar.set_val(0)
+            
+            # Start calculation in a background thread
+            thread = threading.Thread(target=self.monte_carlo_worker)
+            thread.daemon = True  # Thread will be terminated when main program exits
+            thread.start()
+    
+    def stop_monte_carlo(self, event):
+        """Stop the ongoing Monte Carlo calculation."""
+        if self.calculating:
+            self.stop_requested = True
+            # Note: The worker thread will handle cleanup and UI updates
+    
+    def disable_interactive_elements(self):
+        """Disable all interactive elements during calculation."""
+        self.mc_button.active = False
+        self.reset_button.active = False
+        self.add_point_button.active = False
+        self.remove_point_button.active = False
+        self.samples_slider.active = False
+        # Color changes to indicate disabled state
+        self.mc_button.color = 'lightgray'
+        self.reset_button.color = 'lightgray'
+        self.add_point_button.color = 'lightgray'
+        self.remove_point_button.color = 'lightgray'
+        # Refresh the figure
+        self.fig.canvas.draw_idle()
+    
+    def enable_interactive_elements(self):
+        """Re-enable all interactive elements after calculation completes."""
+        self.mc_button.active = True
+        self.reset_button.active = True
+        self.add_point_button.active = True
+        self.remove_point_button.active = True
+        self.samples_slider.active = True
+        # Reset colors
+        self.mc_button.color = '0.85'
+        self.reset_button.color = '0.85'
+        self.add_point_button.color = '0.85'
+        self.remove_point_button.color = '0.85'
+        # Refresh the figure
+        self.fig.canvas.draw_idle()
     
     def update_results(self):
         """Calculate and display projection and average distance results."""
@@ -569,6 +777,10 @@ class InteractivePolygonProjection:
     
     def on_press(self, event):
         """Handle mouse button press event."""
+        # Block all interactions during Monte Carlo calculations
+        if self.calculating:
+            return
+            
         if event.inaxes != self.ax_canvas or event.button != 1:
             return
         
@@ -593,6 +805,10 @@ class InteractivePolygonProjection:
     
     def on_release(self, event):
         """Handle mouse button release event."""
+        # Block all interactions during Monte Carlo calculations
+        if self.calculating:
+            return
+            
         if event.button != 1:
             return
         
@@ -628,6 +844,10 @@ class InteractivePolygonProjection:
     
     def on_motion(self, event):
         """Handle mouse motion event."""
+        # Block all interactions during Monte Carlo calculations
+        if self.calculating:
+            return
+            
         if event.inaxes != self.ax_canvas:
             return
         
