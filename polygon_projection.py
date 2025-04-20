@@ -152,7 +152,77 @@ class PolygonProjection:
         """
         point = self.sample_point()
         return ps.project_point_to_direction(point, self.direction)
+    
+    def get_area(self):
+        """
+        Calculate the area of the polygon.
+        
+        Returns
+        -------
+        float
+            Area of the polygon.
+        """
+        return calculate_polygon_area(self.vertices)
+    
+    def get_perimeter(self):
+        """
+        Calculate the perimeter of the polygon.
+        
+        Returns
+        -------
+        float
+            Perimeter of the polygon.
+        """
+        return calculate_polygon_perimeter(self.vertices)
 
+
+def calculate_polygon_area(vertices):
+    """
+    Calculate the area of a convex polygon using the Shoelace formula.
+    
+    Parameters
+    ----------
+    vertices : array_like, shape (n,2)
+        CCW-ordered polygon vertices.
+        
+    Returns
+    -------
+    float
+        Area of the polygon.
+    """
+    vertices = np.asarray(vertices, dtype=float)
+    x = vertices[:, 0]
+    y = vertices[:, 1]
+    
+    # Shoelace formula
+    area = 0.5 * np.abs(np.sum(x * np.roll(y, -1) - np.roll(x, -1) * y))
+    return area
+
+def calculate_polygon_perimeter(vertices):
+    """
+    Calculate the perimeter (sum of edge lengths) of a polygon.
+    
+    Parameters
+    ----------
+    vertices : array_like, shape (n,2)
+        CCW-ordered polygon vertices.
+        
+    Returns
+    -------
+    float
+        Perimeter of the polygon.
+    """
+    vertices = np.asarray(vertices, dtype=float)
+    n = len(vertices)
+    
+    # Calculate the sum of distances between consecutive vertices
+    perimeter = 0.0
+    for i in range(n):
+        p1 = vertices[i]
+        p2 = vertices[(i+1) % n]
+        perimeter += np.linalg.norm(p2 - p1)
+        
+    return perimeter
 
 def generate_regular_polygon(n_sides=6, radius=1.0):
     """

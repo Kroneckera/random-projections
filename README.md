@@ -26,7 +26,8 @@ For a convex polygon and a direction vector, the tool calculates:
 
 - The exact probability density function of projections
 - The exact expected absolute difference E[|X-Y|] between two random points' projections
-- Monte Carlo approximations of these values with configurable sample sizes
+- Polygon geometric properties (area and perimeter)
+- Monte Carlo approximations of expected distances with configurable sample sizes
 
 These calculations are performed for both:
 - Points sampled uniformly from the **interior** of the convex polygon
@@ -37,7 +38,8 @@ These calculations are performed for both:
 The interactive GUI allows you to:
 
 - Create and manipulate convex polygons by dragging vertices
-- Set the projection direction using a draggable vector
+- Set the projection direction using two draggable endpoints
+- View polygon geometric properties (area and perimeter) in real-time
 - Toggle between interior and boundary projections
 - Run Monte Carlo approximations with configurable sample sizes
 - Compare exact analytical results with Monte Carlo approximations
@@ -75,11 +77,12 @@ pytest test_polygon_projection.py
 
 When using the interactive tool:
 1. Drag the blue vertices to reshape the polygon
-2. Drag the red points to change the projection direction
-3. Use the "Interior"/"Boundary" radio buttons to switch projection regions
-4. Adjust the Monte Carlo sample size using the slider
-5. Click "Calculate Monte Carlo" to run simulations
-6. View exact and approximate calculations in the results panel
+2. Drag both red points to change the projection direction
+3. View polygon information (vertices, area, perimeter) in real-time
+4. Use the "Interior"/"Boundary" radio buttons to switch projection regions
+5. Adjust the Monte Carlo sample size using the slider
+6. Click "Calculate Monte Carlo" to run simulations
+7. View exact and approximate calculations in the results panel
 
 ## License
 

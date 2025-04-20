@@ -295,10 +295,16 @@ class InteractivePolygonProjection:
                 # Get currently selected value
                 current_exact = interior_exact if self.region == PolygonRegion.INTERIOR else boundary_exact
                 
+                # Calculate polygon properties
+                area = interior_proj.get_area()
+                perimeter = interior_proj.get_perimeter()
+                
                 # Format results for display
                 results_str = (
                     f"Polygon Info:\n"
                     f"- {len(self.vertices)} vertices\n"
+                    f"- Area: {area:.4f}\n"
+                    f"- Perimeter: {perimeter:.4f}\n"
                     f"- Direction: [{self.direction[0]:.3f}, {self.direction[1]:.3f}]\n\n"
                     f"Exact Expected Distances (E[|X-Y|]):\n\n"
                     f"Interior: {interior_exact:.6f}\n\n"
