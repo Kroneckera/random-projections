@@ -19,6 +19,7 @@ import matplotlib.gridspec as gridspec
 from polygon_projection import PolygonProjection, PolygonRegion, generate_regular_polygon
 import threading
 import time
+import queue
 
 
 class SimpleProgressBar:
@@ -147,18 +148,36 @@ class InteractivePolygonProjection:
         # Initialize figure and layout
         self.fig = plt.figure(figsize=(12, 8))
         self.fig.canvas.manager.set_window_title('Interactive Polygon Projection')
+        
+        # Create a GridSpec layout with original proportions
         gs = gridspec.GridSpec(3, 3)
         
-        # Main canvas
-        self.ax_canvas = self.fig.add_subplot(gs[:2, :2])
+        # Main canvas with increased size and centered position
+        # Original size was 0.5 × 0.5, now 20% larger: 0.6 × 0.6
+        canvas_width = 0.6
+        canvas_height = 0.6
+        
+        # Calculate the position to center it in the left half
+        left_half_width = 0.5  # Left half width (out of 1.0 total figure width)
+        left_half_center = 0.25  # Center of left half (0.0 to 0.5)
+        
+        # Calculate position: centered horizontally in left half, vertically in upper area
+        canvas_left = left_half_center - canvas_width/2
+        canvas_bottom = 0.3  # Position vertically to fit in the figure
+        
+        # Create figure-level axes with the new position and size
+        self.ax_canvas = self.fig.add_axes([canvas_left, canvas_bottom, canvas_width, canvas_height])  # [left, bottom, width, height]
         self.ax_canvas.set_xlim(-3, 3)
         self.ax_canvas.set_ylim(-3, 3)
         self.ax_canvas.set_aspect('equal')
         self.ax_canvas.grid(True)
         self.ax_canvas.set_title('Polygon Editor - Drag vertices or direction')
         
-        # Results panel
-        self.ax_results = self.fig.add_subplot(gs[:2, 2])
+        # Results panel - adjust position to account for larger canvas
+        # Move it to right and adjust size accordingly
+        results_left = canvas_left + canvas_width + 0.02  # Position right after canvas with small gap
+        results_width = 0.98 - results_left  # Use remaining space to right edge
+        self.ax_results = self.fig.add_axes([results_left, canvas_bottom, results_width, canvas_height])  # [left, bottom, width, height]
         self.ax_results.axis('off')
         self.results_text = self.ax_results.text(
             0.05, 0.95, 'Results will appear here',
@@ -166,18 +185,18 @@ class InteractivePolygonProjection:
             transform=self.ax_results.transAxes
         )
         
-        # Controls panel
-        self.ax_controls = self.fig.add_subplot(gs[2, :])
+        # Controls panel - using add_axes for consistent positioning
+        self.ax_controls = self.fig.add_axes([0.05, 0.05, 0.9, 0.25])  # [left, bottom, width, height]
         self.ax_controls.axis('off')
         
-        # Polygon initialization
+        # Polygon initialization - standard regular hexagon
         self.vertices = generate_regular_polygon(n_sides=6, radius=2.0)
         self.polygon_patch = MplPolygon(
             self.vertices, alpha=0.2, fc='b', ec='blue', zorder=1
         )
         self.ax_canvas.add_patch(self.polygon_patch)
         
-        # Direction initialization
+        # Direction initialization - original values
         self.direction_start = np.array([0.0, 0.0])
         self.direction_end = np.array([1.0, 0.5])
         self.direction = self.direction_end - self.direction_start
@@ -227,62 +246,102 @@ class InteractivePolygonProjection:
         
         # We no longer need a region selector as we'll show both interior and boundary values
         
-        # Monte Carlo samples slider (logarithmic scale)
-        samples_ax = plt.axes([0.55, 0.25, 0.35, 0.03])
-        # Use log scale from 10^2 to 10^6
+        # Define controls layout with clear separation
+        # Simple split at the middle (50/50)
+        panel_width = 0.40    # Width for each panel (polygon and Monte Carlo)
+        
+        # Starting positions
+        left_start = 0.05     # Left panel start
+        right_start = 0.55    # Right panel start
+        button_height = 0.04  # Standard button height
+        control_spacing = 0.07  # Vertical spacing between controls
+        
+        # Polygon controls - left half, positioned further to the center
+        reset_button_width = 0.10
+        vertex_button_width = 0.10
+        button_spacing = 0.01
+        
+        # Clear row positions used for all controls
+        top_row_y = 0.22      # Top row of controls (slider)
+        middle_row_y = 0.16   # Middle row (progress bar)
+        bottom_row_y = 0.08   # Bottom row (buttons)
+        
+        # Position polygon buttons precisely in the center of the left half
+        left_half_width = 0.45  # Width of the left half (from 0.05 to 0.5)
+        total_polygon_buttons_width = reset_button_width + vertex_button_width + vertex_button_width + 3*button_spacing
+        
+        # Calculate position to center buttons beneath the polygon canvas
+        # Use the canvas center position as reference
+        canvas_center = canvas_left + canvas_width/2
+        polygon_left_margin = canvas_center - total_polygon_buttons_width/2  # Center directly below canvas
+        
+        # All polygon buttons in a single row at the middle row height
+        reset_ax = plt.axes([polygon_left_margin, middle_row_y, reset_button_width, button_height])
+        self.reset_button = Button(reset_ax, 'Reset')
+        self.reset_button.on_clicked(self.reset_polygon)
+        
+        # Add vertex button
+        add_point_ax = plt.axes([polygon_left_margin + reset_button_width + button_spacing, 
+                               middle_row_y, vertex_button_width, button_height])
+        self.add_point_button = Button(add_point_ax, 'Add Vertex')
+        self.add_point_button.on_clicked(self.add_vertex)
+        
+        # Remove vertex button
+        remove_point_ax = plt.axes([polygon_left_margin + reset_button_width + vertex_button_width + 2*button_spacing, 
+                                  middle_row_y, vertex_button_width, button_height])
+        self.remove_point_button = Button(remove_point_ax, 'Remove Vertex')
+        self.remove_point_button.on_clicked(self.remove_vertex)
+        
+        # Monte Carlo controls - right half
+        mc_controls_width = 0.35
+        
+        # MC samples slider (logarithmic scale) - aligned with top row
+        samples_ax = plt.axes([right_start, top_row_y, mc_controls_width, 0.03])
         self.samples_slider = Slider(
             samples_ax, 'MC Samples', 2, 6, 
             valinit=5
         )
         
-        # Override the format string dynamically
+        # Format function for showing actual sample count
         def format_func(x, pos):
             return f"{int(10**x):,}"
         
         self.samples_slider.valtext.set_text(format_func(5, None))
         
-        # Function to convert from log slider to actual value
+        # Update function for logarithmic scale
         def logarithmic_update(val):
-            # Convert from slider value to number of samples (10^val)
             samples = int(10**val)
-            # Update display text with formatted value
             self.samples_slider.valtext.set_text(format_func(val, None))
-            
-        # Connect log update function
+        
         self.samples_slider.on_changed(logarithmic_update)
         self.n_samples = 100000
         
-        # Progress bar for Monte Carlo calculations
-        progress_ax = plt.axes([0.25, 0.15, 0.35, 0.03])
+        # Progress bar - aligned with middle row
+        progress_ax = plt.axes([right_start, middle_row_y, mc_controls_width, 0.03])
         self.progress_bar = SimpleProgressBar(progress_ax, 0, 100)
         self.progress_bar.set_val(0)
         
-        # Monte Carlo calculation button
-        mc_button_ax = plt.axes([0.65, 0.15, 0.15, 0.05])
-        self.mc_button = Button(mc_button_ax, 'Calculate Monte Carlo')
+        # Calculation buttons - aligned with bottom row
+        calc_button_width = 0.25
+        stop_button_width = 0.09
+        
+        mc_button_ax = plt.axes([right_start, bottom_row_y, calc_button_width, button_height])
+        self.mc_button = Button(mc_button_ax, 'Calculate MC')
         self.mc_button.on_clicked(self.calculate_monte_carlo)
         
-        # Stop button for Monte Carlo calculations
-        stop_button_ax = plt.axes([0.82, 0.15, 0.08, 0.05])
+        stop_button_ax = plt.axes([right_start + calc_button_width + button_spacing, bottom_row_y, stop_button_width, button_height])
         self.stop_button = Button(stop_button_ax, 'Stop')
         self.stop_button.on_clicked(self.stop_monte_carlo)
         
-        # Calculation status
+        # Calculation status and communication
         self.calculating = False
         self.stop_requested = False
+        self.results_queue = queue.Queue()
         
-        # Buttons
-        reset_ax = plt.axes([0.05, 0.05, 0.15, 0.05])
-        self.reset_button = Button(reset_ax, 'Reset Polygon')
-        self.reset_button.on_clicked(self.reset_polygon)
-        
-        add_point_ax = plt.axes([0.25, 0.05, 0.15, 0.05])
-        self.add_point_button = Button(add_point_ax, 'Add Vertex')
-        self.add_point_button.on_clicked(self.add_vertex)
-        
-        remove_point_ax = plt.axes([0.45, 0.05, 0.15, 0.05])
-        self.remove_point_button = Button(remove_point_ax, 'Remove Vertex')
-        self.remove_point_button.on_clicked(self.remove_vertex)
+        # Set up timer for UI updates from worker thread
+        self.timer = self.fig.canvas.new_timer(interval=100)  # 100ms interval
+        self.timer.add_callback(self.process_results_queue)
+        self.timer.start()
         
         # Monte Carlo results storage - includes both projection and average distances
         self.mc_results = {
@@ -391,29 +450,61 @@ class InteractivePolygonProjection:
             self.avg_distances['interior'] = interior_proj.average_distance_exact()
             self.avg_distances['boundary'] = boundary_proj.average_distance_exact()
     
+    def process_results_queue(self):
+        """Process any results in the queue and update the UI safely (called by timer on main thread)"""
+        try:
+            # Process all available messages in the queue
+            while not self.results_queue.empty():
+                msg = self.results_queue.get_nowait()
+                
+                if msg['type'] == 'progress':
+                    # Update progress bar
+                    self.progress_bar.set_val(msg['value'])
+                
+                elif msg['type'] == 'results':
+                    # Update the results
+                    self.mc_results['interior_proj'] = msg['interior_proj']
+                    self.mc_results['interior_avg'] = msg['interior_avg']
+                    self.mc_results['boundary_proj'] = msg['boundary_proj']
+                    self.mc_results['boundary_avg'] = msg['boundary_avg']
+                    self.update_results()
+                
+                elif msg['type'] == 'done':
+                    # Calculation is complete
+                    self.calculating = False
+                    self.enable_interactive_elements()
+                    
+                elif msg['type'] == 'error':
+                    # Handle error
+                    print(f"Monte Carlo calculation error: {msg['error']}")
+                    self.calculating = False
+                    self.progress_bar.set_val(0)
+                    self.enable_interactive_elements()
+                
+                self.results_queue.task_done()
+                
+        except Exception as e:
+            print(f"Error processing results queue: {e}")
+    
     def monte_carlo_worker(self):
         """Background worker thread to run Monte Carlo calculations with progress updates."""
         try:
-            # Reset progress
-            self.progress_bar.set_val(0)
-            self.fig.canvas.draw_idle()
-            
             # Get number of samples from logarithmic slider (10^slider_val)
             log_val = self.samples_slider.val
             self.n_samples = int(10**log_val)
             
             # Pre-allocate result containers
             batch_size = min(10000, max(100, self.n_samples // 20))  # 5% increments or at least 100
-            num_batches = self.n_samples // batch_size
+            num_batches = max(1, self.n_samples // batch_size)
             
             # Initialize PolygonProjection objects
             interior_proj = PolygonProjection(
-                self.vertices, self.direction, 
+                self.vertices.copy(), self.direction.copy(), 
                 region=PolygonRegion.INTERIOR,
                 seed=42
             )
             boundary_proj = PolygonProjection(
-                self.vertices, self.direction, 
+                self.vertices.copy(), self.direction.copy(), 
                 region=PolygonRegion.BOUNDARY,
                 seed=43
             )
@@ -429,10 +520,7 @@ class InteractivePolygonProjection:
             for i in range(num_batches):
                 if self.stop_requested:
                     # Early termination if stop was requested
-                    self.stop_requested = False
-                    self.calculating = False
-                    self.progress_bar.set_val(0)
-                    return
+                    break
                 
                 # Process a batch
                 samples_in_batch = min(batch_size, self.n_samples - samples_processed)
@@ -457,45 +545,43 @@ class InteractivePolygonProjection:
                 samples_processed += samples_in_batch
                 progress = int(100 * samples_processed / self.n_samples)
                 
-                # Update the progress bar safely from the worker thread
-                def update_progress():
-                    self.progress_bar.set_val(progress)
-                    # Also update results as we go for real-time feedback
-                    if i % 2 == 0:  # Update every other batch to avoid excessive redrawing
-                        self.mc_results['interior_proj'] = interior_proj_total / samples_processed
-                        self.mc_results['interior_avg'] = interior_avg_total / samples_processed
-                        self.mc_results['boundary_proj'] = boundary_proj_total / samples_processed
-                        self.mc_results['boundary_avg'] = boundary_avg_total / samples_processed
-                        self.update_results()
+                # Queue progress update (the timer will pick this up on the main thread)
+                self.results_queue.put({'type': 'progress', 'value': progress})
                 
-                # Schedule the UI update on the main thread
-                plt.gcf().canvas.flush_events()
-                plt.gcf().canvas.draw_idle()
-                update_progress()
-                plt.gcf().canvas.flush_events()
+                # Queue intermediate results every few batches or at the end
+                if samples_processed > 0 and (i % 2 == 0 or i == num_batches - 1):
+                    self.results_queue.put({
+                        'type': 'results',
+                        'interior_proj': interior_proj_total / samples_processed,
+                        'interior_avg': interior_avg_total / samples_processed,
+                        'boundary_proj': boundary_proj_total / samples_processed,
+                        'boundary_avg': boundary_avg_total / samples_processed
+                    })
                 
-                # Slight delay to allow UI updates
+                # Small sleep to prevent the thread from hogging all CPU
                 time.sleep(0.01)
             
-            # Store final results properly averaged
-            if samples_processed > 0:
-                self.mc_results['interior_proj'] = interior_proj_total / samples_processed
-                self.mc_results['interior_avg'] = interior_avg_total / samples_processed
-                self.mc_results['boundary_proj'] = boundary_proj_total / samples_processed
-                self.mc_results['boundary_avg'] = boundary_avg_total / samples_processed
-            
-            # Final update
-            self.progress_bar.set_val(100)
-            self.update_results()
+            # Final update if not stopped
+            if not self.stop_requested and samples_processed > 0:
+                # Queue final results
+                self.results_queue.put({
+                    'type': 'results',
+                    'interior_proj': interior_proj_total / samples_processed,
+                    'interior_avg': interior_avg_total / samples_processed,
+                    'boundary_proj': boundary_proj_total / samples_processed,
+                    'boundary_avg': boundary_avg_total / samples_processed
+                })
+                
+                # Queue final progress update
+                self.results_queue.put({'type': 'progress', 'value': 100})
             
         except Exception as e:
-            print(f"Monte Carlo calculation error: {e}")
+            # Queue error message
+            self.results_queue.put({'type': 'error', 'error': str(e)})
         finally:
-            # Always reset the calculation state
-            self.calculating = False
+            # Always queue 'done' message to clean up
+            self.results_queue.put({'type': 'done'})
             self.stop_requested = False
-            # Enable all interactive elements
-            self.enable_interactive_elements()
     
     def calculate_monte_carlo(self, event):
         """Start Monte Carlo calculations in a background thread with progress tracking."""
@@ -521,7 +607,11 @@ class InteractivePolygonProjection:
     def stop_monte_carlo(self, event):
         """Stop the ongoing Monte Carlo calculation."""
         if self.calculating:
+            # Set stop flag for worker thread
             self.stop_requested = True
+            # Change the button appearance to indicate stop request is in process
+            self.stop_button.label.set_text("Stopping...")
+            self.fig.canvas.draw_idle()
             # Note: The worker thread will handle cleanup and UI updates
     
     def disable_interactive_elements(self):
@@ -551,6 +641,8 @@ class InteractivePolygonProjection:
         self.reset_button.color = '0.85'
         self.add_point_button.color = '0.85'
         self.remove_point_button.color = '0.85'
+        # Reset stop button text
+        self.stop_button.label.set_text("Stop")
         # Refresh the figure
         self.fig.canvas.draw_idle()
     
@@ -652,6 +744,7 @@ class InteractivePolygonProjection:
     def reset_polygon(self, event):
         """Reset to a regular hexagon."""
         self.vertices = generate_regular_polygon(n_sides=6, radius=2.0)
+        
         self.update_vertex_points()
         self.update_polygon()
         # Reset Monte Carlo results
