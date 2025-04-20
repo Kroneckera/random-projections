@@ -2,8 +2,6 @@
 
 An interactive mathematical visualization tool for studying projections of points in convex polygons and computing expected distances.
 
-![Polygon Projection Visualization](https://github.com/Kroneckera/random-projections/raw/master/screenshots/demo.png)
-
 ## Overview
 
 This project provides tools for analyzing the projections of uniform distributions on convex polygons onto a given direction. It computes both exact analytical solutions and Monte Carlo approximations for the expected distance between two randomly selected points after projection.
@@ -16,9 +14,7 @@ Both approaches yield interesting mathematical properties that can be explored t
 
 ## Components
 
-- **polygon_projection.py**: Unified high-level API for polygon projections
-- **projection_sampling.py**: Analytical and sampling methods for interior points
-- **edge_projection.py**: Analytical and sampling methods for boundary points
+- **polygon_projection.py**: Unified high-level API for polygon projections with integrated analytical and sampling methods
 - **interactive_projection.py**: Interactive visualization tool with real-time computations
 - **test_polygon_projection.py**: Comprehensive test suite validating the mathematical implementations
 
