@@ -69,9 +69,9 @@ def test_boundary_average_distance_square(square):
     # Monte Carlo with high number of samples
     mc = proj.average_distance_monte_carlo(n_samples=100000)
     
-    # For points on the boundary of a unit square, the average distance
-    # is approximately 0.7351 (determined numerically)
-    analytical = 0.7351
+    # For points on the boundary of a unit square, the analytical result is
+    # E[||X-Y||] = (1/4) + (sqrt(2)/12) + (5*ln(1+sqrt(2)))/12 ≈ 0.735090
+    analytical = 0.25 + np.sqrt(2)/12 + 5*np.log(1+np.sqrt(2))/12
     
     # Test that the exact integration is close to analytical
     assert abs(exact - analytical) < 1e-5
