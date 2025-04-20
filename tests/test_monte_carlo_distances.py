@@ -39,8 +39,8 @@ def test_square_interior_monte_carlo():
     mc_result = proj.average_distance_monte_carlo(n_samples=500000)
     
     # Analytical value for unit square L(1,1)
-    # From literature: E[||X-Y||] = (2 + 2*sqrt(2) + 5*ln(1+sqrt(2)))/15 ≈ 0.521405
-    analytical = (2 + 2*np.sqrt(2) + 5*np.log(1+np.sqrt(2)))/15
+    # From literature: E[||X-Y||] = (sqrt(2) + 2 + 5*ln(1+sqrt(2)))/15 ≈ 0.521405
+    analytical = (np.sqrt(2) + 2 + 5*np.log(1+np.sqrt(2)))/15
     
     # Check that Monte Carlo is close to analytical
     rel_error = abs(mc_result - analytical) / analytical
@@ -85,8 +85,9 @@ def test_square_perimeter_monte_carlo():
     
     mc_result = np.mean(distances)
     
-    # For unit square perimeter, E[||X-Y||] = 4/3 (average perimeter distance formula)
-    analytical = 4/3
+    # For unit square perimeter, the correct formula is:
+    # E[||X-Y||] = (1/4) + (sqrt(2)/12) + (5*ln(1+sqrt(2)))/12 ≈ 0.735090
+    analytical = 0.25 + np.sqrt(2)/12 + 5*np.log(1+np.sqrt(2))/12
     
     # Check that Monte Carlo is close to analytical
     rel_error = abs(mc_result - analytical) / analytical
