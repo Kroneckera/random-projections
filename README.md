@@ -46,10 +46,13 @@ The interactive GUI allows you to:
 - Create and manipulate convex polygons by dragging vertices
 - Set the projection direction using two draggable endpoints
 - View polygon geometric properties (area and perimeter) in real-time
-- Toggle between interior and boundary projections
+- View both interior and boundary projection results simultaneously
+- View exact average Euclidean distances across all directions
 - Run Monte Carlo approximations with configurable sample sizes
-- Compare exact analytical results with Monte Carlo approximations
-- Add/remove vertices and reset the polygon
+- Compare exact analytical results with Monte Carlo approximations for both projected and average distances
+- Add vertices (placed intelligently to maintain convexity)
+- Remove vertices and reset the polygon
+- Enforced convexity during vertex manipulation
 
 ## Installation and Usage
 
@@ -87,13 +90,14 @@ pytest tests/test_average_distances.py
 ## Demonstration
 
 When using the interactive tool:
-1. Drag the blue vertices to reshape the polygon
+1. Drag the blue vertices to reshape the polygon (convexity is automatically maintained)
 2. Drag both red points to change the projection direction
 3. View polygon information (vertices, area, perimeter) in real-time
-4. Use the "Interior"/"Boundary" radio buttons to switch projection regions
-5. Adjust the Monte Carlo sample size using the slider
-6. Click "Calculate Monte Carlo" to run simulations
-7. View exact and approximate calculations in the results panel
+4. View both interior and boundary projection distances simultaneously
+5. See average Euclidean distances across all directions
+6. Adjust the Monte Carlo sample size using the slider
+7. Click "Calculate Monte Carlo" to run simulations for both projected and average distances
+8. View exact and approximate calculations in the results panel with error percentages
 
 ## License
 

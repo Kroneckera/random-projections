@@ -19,6 +19,54 @@ import matplotlib.gridspec as gridspec
 from polygon_projection import PolygonProjection, PolygonRegion, generate_regular_polygon
 
 
+def is_convex(vertices):
+    """
+    Check if a polygon is convex by verifying that all interior angles are less than 180 degrees.
+    Uses the cross product to check if all vertices are making "right turns" or all making "left turns".
+    
+    Parameters
+    ----------
+    vertices : array_like, shape (n,2)
+        CCW-ordered polygon vertices.
+        
+    Returns
+    -------
+    bool
+        True if the polygon is convex, False otherwise.
+    """
+    # Need at least 3 vertices to form a polygon
+    if len(vertices) < 3:
+        return True  # Degenerate case
+        
+    # Compute the cross product for each set of three consecutive vertices
+    n = len(vertices)
+    # Initialize sign of first cross product
+    dx1 = vertices[1][0] - vertices[0][0]
+    dy1 = vertices[1][1] - vertices[0][1]
+    dx2 = vertices[2][0] - vertices[1][0]
+    dy2 = vertices[2][1] - vertices[1][1]
+    cross_z = dx1 * dy2 - dy1 * dx2
+    sign = 1 if cross_z > 0 else -1 if cross_z < 0 else 0
+    
+    # Check all other cross products
+    for i in range(1, n):
+        dx1 = vertices[(i+1) % n][0] - vertices[i][0]
+        dy1 = vertices[(i+1) % n][1] - vertices[i][1]
+        dx2 = vertices[(i+2) % n][0] - vertices[(i+1) % n][0]
+        dy2 = vertices[(i+2) % n][1] - vertices[(i+1) % n][1]
+        cross_z = dx1 * dy2 - dy1 * dx2
+        
+        # If sign changes, the polygon is not convex
+        curr_sign = 1 if cross_z > 0 else -1 if cross_z < 0 else 0
+        if curr_sign != 0 and sign != 0 and curr_sign != sign:
+            return False
+        # Update sign if it was previously 0
+        if sign == 0 and curr_sign != 0:
+            sign = curr_sign
+    
+    return True
+
+
 class InteractivePolygonProjection:
     """
     Interactive visualization tool for polygon projections.
@@ -106,14 +154,7 @@ class InteractivePolygonProjection:
             
         self.ax_canvas.add_line(self.projection_axis)
         
-        # Initialize RadioButtons for region selection
-        region_ax = plt.axes([0.05, 0.2, 0.15, 0.1])
-        self.region_selector = RadioButtons(
-            region_ax, ('Interior', 'Boundary'),
-            activecolor='blue'
-        )
-        self.region_selector.on_clicked(self.update_region)
-        self.region = PolygonRegion.INTERIOR
+        # We no longer need a region selector as we'll show both interior and boundary values
         
         # Monte Carlo samples slider (logarithmic scale)
         samples_ax = plt.axes([0.55, 0.25, 0.35, 0.03])
@@ -158,8 +199,19 @@ class InteractivePolygonProjection:
         self.remove_point_button = Button(remove_point_ax, 'Remove Vertex')
         self.remove_point_button.on_clicked(self.remove_vertex)
         
-        # Monte Carlo results storage
-        self.mc_results = {'interior': None, 'boundary': None}
+        # Monte Carlo results storage - includes both projection and average distances
+        self.mc_results = {
+            'interior_proj': None, 
+            'boundary_proj': None,
+            'interior_avg': None,
+            'boundary_avg': None
+        }
+        
+        # Exact average distance results
+        self.avg_distances = {
+            'interior': None,
+            'boundary': None
+        }
         
         # Initialize interaction
         self.selected_vertex = None
@@ -236,13 +288,26 @@ class InteractivePolygonProjection:
         
         self.fig.canvas.draw_idle()
     
-    def update_region(self, label):
-        """Update the selected region."""
-        self.region = PolygonRegion.INTERIOR if label == 'Interior' else PolygonRegion.BOUNDARY
-        self.update_results()
+    def calculate_average_distances(self):
+        """Calculate exact average distances for both interior and boundary."""
+        if len(self.vertices) >= 3:
+            # Interior
+            interior_proj = PolygonProjection(
+                self.vertices, self.direction, 
+                region=PolygonRegion.INTERIOR
+            )
+            # Boundary
+            boundary_proj = PolygonProjection(
+                self.vertices, self.direction, 
+                region=PolygonRegion.BOUNDARY
+            )
+            
+            # Store the results
+            self.avg_distances['interior'] = interior_proj.average_distance_exact()
+            self.avg_distances['boundary'] = boundary_proj.average_distance_exact()
     
     def calculate_monte_carlo(self, event):
-        """Calculate Monte Carlo approximations for both regions."""
+        """Calculate Monte Carlo approximations for both projected and average distances."""
         try:
             if len(self.vertices) >= 3 and np.linalg.norm(self.direction) > 0:
                 # Get number of samples from logarithmic slider (10^slider_val)
@@ -255,8 +320,12 @@ class InteractivePolygonProjection:
                     region=PolygonRegion.INTERIOR,
                     seed=42
                 )
-                interior_mc = interior_proj.monte_carlo_expected_distance(self.n_samples)
-                self.mc_results['interior'] = interior_mc
+                # Projected distance
+                interior_mc_proj = interior_proj.monte_carlo_expected_distance(self.n_samples)
+                self.mc_results['interior_proj'] = interior_mc_proj
+                # Average distance across all directions
+                interior_mc_avg = interior_proj.average_distance_monte_carlo(self.n_samples)
+                self.mc_results['interior_avg'] = interior_mc_avg
                 
                 # Calculate for boundary
                 boundary_proj = PolygonProjection(
@@ -264,8 +333,12 @@ class InteractivePolygonProjection:
                     region=PolygonRegion.BOUNDARY,
                     seed=42
                 )
-                boundary_mc = boundary_proj.monte_carlo_expected_distance(self.n_samples)
-                self.mc_results['boundary'] = boundary_mc
+                # Projected distance
+                boundary_mc_proj = boundary_proj.monte_carlo_expected_distance(self.n_samples)
+                self.mc_results['boundary_proj'] = boundary_mc_proj
+                # Average distance across all directions
+                boundary_mc_avg = boundary_proj.average_distance_monte_carlo(self.n_samples)
+                self.mc_results['boundary_avg'] = boundary_mc_avg
                 
                 # Update display
                 self.update_results()
@@ -274,7 +347,7 @@ class InteractivePolygonProjection:
             print(f"Monte Carlo calculation error: {e}")
     
     def update_results(self):
-        """Calculate and display exact projection results."""
+        """Calculate and display projection and average distance results."""
         try:
             # If we have at least 3 vertices and a valid direction
             if len(self.vertices) >= 3 and np.linalg.norm(self.direction) > 0:
@@ -288,12 +361,16 @@ class InteractivePolygonProjection:
                     region=PolygonRegion.BOUNDARY
                 )
                 
-                # Calculate exact expected distances
-                interior_exact = interior_proj.exact_expected_distance()
-                boundary_exact = boundary_proj.exact_expected_distance()
+                # Calculate exact expected distances for projection
+                interior_exact_proj = interior_proj.exact_expected_distance()
+                boundary_exact_proj = boundary_proj.exact_expected_distance()
                 
-                # Get currently selected value
-                current_exact = interior_exact if self.region == PolygonRegion.INTERIOR else boundary_exact
+                # Calculate or update average distances
+                if self.avg_distances['interior'] is None or self.avg_distances['boundary'] is None:
+                    self.calculate_average_distances()
+                
+                interior_exact_avg = self.avg_distances['interior']
+                boundary_exact_avg = self.avg_distances['boundary']
                 
                 # Calculate polygon properties
                 area = interior_proj.get_area()
@@ -306,30 +383,49 @@ class InteractivePolygonProjection:
                     f"- Area: {area:.4f}\n"
                     f"- Perimeter: {perimeter:.4f}\n"
                     f"- Direction: [{self.direction[0]:.3f}, {self.direction[1]:.3f}]\n\n"
-                    f"Exact Expected Distances (E[|X-Y|]):\n\n"
-                    f"Interior: {interior_exact:.6f}\n\n"
-                    f"Boundary: {boundary_exact:.6f}\n\n"
-                    f"Selected: {self.region.value.capitalize()}\n"
-                    f"Value: {current_exact:.6f}"
+                    f"Exact Results\n"
+                    f"-------------\n"
+                    f"Projected Distances:\n"
+                    f"- Interior: {interior_exact_proj:.6f}\n"
+                    f"- Boundary: {boundary_exact_proj:.6f}\n\n"
+                    f"Average Distances:\n"
+                    f"- Interior: {interior_exact_avg:.6f}\n"
+                    f"- Boundary: {boundary_exact_avg:.6f}"
                 )
                 
                 # Add Monte Carlo results if available
-                if self.mc_results['interior'] is not None and self.mc_results['boundary'] is not None:
-                    interior_mc = self.mc_results['interior']
-                    boundary_mc = self.mc_results['boundary']
+                has_mc_results = (
+                    self.mc_results['interior_proj'] is not None and 
+                    self.mc_results['boundary_proj'] is not None and
+                    self.mc_results['interior_avg'] is not None and
+                    self.mc_results['boundary_avg'] is not None
+                )
+                
+                if has_mc_results:
+                    # Get Monte Carlo values
+                    interior_mc_proj = self.mc_results['interior_proj']
+                    boundary_mc_proj = self.mc_results['boundary_proj']
+                    interior_mc_avg = self.mc_results['interior_avg']
+                    boundary_mc_avg = self.mc_results['boundary_avg']
                     
-                    # Get current Monte Carlo result
-                    current_mc = interior_mc if self.region == PolygonRegion.INTERIOR else boundary_mc
+                    # Calculate errors for projected distances
+                    interior_proj_error = abs(interior_exact_proj - interior_mc_proj) / interior_exact_proj
+                    boundary_proj_error = abs(boundary_exact_proj - boundary_mc_proj) / boundary_exact_proj
                     
-                    # Calculate errors
-                    interior_error = abs(interior_exact - interior_mc) / interior_exact
-                    boundary_error = abs(boundary_exact - boundary_mc) / boundary_exact
+                    # Calculate errors for average distances
+                    interior_avg_error = abs(interior_exact_avg - interior_mc_avg) / interior_exact_avg
+                    boundary_avg_error = abs(boundary_exact_avg - boundary_mc_avg) / boundary_exact_avg
                     
                     results_str += (
-                        f"\n\n====== Monte Carlo Results ======\n"
+                        f"\n\nMonte Carlo Results\n"
+                        f"------------------\n"
                         f"Samples: {self.n_samples:,}\n\n"
-                        f"Interior: {interior_mc:.6f} (error: {interior_error:.2%})\n\n"
-                        f"Boundary: {boundary_mc:.6f} (error: {boundary_error:.2%})"
+                        f"Projected Distances:\n"
+                        f"- Interior: {interior_mc_proj:.6f} (error: {interior_proj_error:.2%})\n"
+                        f"- Boundary: {boundary_mc_proj:.6f} (error: {boundary_proj_error:.2%})\n\n"
+                        f"Average Distances:\n"
+                        f"- Interior: {interior_mc_avg:.6f} (error: {interior_avg_error:.2%})\n"
+                        f"- Boundary: {boundary_mc_avg:.6f} (error: {boundary_avg_error:.2%})"
                     )
                 
             else:
@@ -351,26 +447,104 @@ class InteractivePolygonProjection:
         self.update_vertex_points()
         self.update_polygon()
         # Reset Monte Carlo results
-        self.mc_results = {'interior': None, 'boundary': None}
+        self.mc_results = {
+            'interior_proj': None, 
+            'boundary_proj': None,
+            'interior_avg': None,
+            'boundary_avg': None
+        }
+        # Reset average distances
+        self.avg_distances = {
+            'interior': None,
+            'boundary': None
+        }
         self.update_results()
     
     def add_vertex(self, event):
-        """Add a new vertex to the polygon."""
+        """
+        Add a new vertex to the polygon while preserving convexity.
+        The method attempts to find the edge with the longest length 
+        and inserts a new vertex at its midpoint.
+        """
         if len(self.vertices) < 20:  # Limit to 20 vertices
-            # Add new vertex at midpoint of the last and first vertex
-            if len(self.vertices) >= 2:
-                last = self.vertices[-1]
-                first = self.vertices[0]
-                new_vertex = (last + first) / 2
+            if len(self.vertices) >= 3:
+                # Find the longest edge to add a new vertex to
+                n = len(self.vertices)
+                max_length = 0
+                max_idx = 0
                 
-                # Insert at the end (before closing the loop)
+                # Iterate through all edges to find the longest one
+                for i in range(n):
+                    p1 = self.vertices[i]
+                    p2 = self.vertices[(i+1) % n]
+                    length = np.linalg.norm(p2 - p1)
+                    
+                    if length > max_length:
+                        max_length = length
+                        max_idx = i
+                
+                # Create a new vertex at the midpoint of the longest edge
+                p1 = self.vertices[max_idx]
+                p2 = self.vertices[(max_idx+1) % n]
+                new_vertex = (p1 + p2) / 2
+                
+                # Insert the new vertex between the endpoints of the longest edge
+                new_vertices = np.insert(
+                    self.vertices, 
+                    (max_idx+1) % n, 
+                    new_vertex, 
+                    axis=0
+                )
+                
+                # Ensure the result is convex (should always be the case with this method)
+                if is_convex(new_vertices):
+                    self.vertices = new_vertices
+                    
+                    # Update visualization
+                    self.update_vertex_points()
+                    self.update_polygon()
+                    # Reset Monte Carlo results since polygon changed
+                    self.mc_results = {
+                        'interior_proj': None, 
+                        'boundary_proj': None,
+                        'interior_avg': None,
+                        'boundary_avg': None
+                    }
+                    # Reset average distances
+                    self.avg_distances = {
+                        'interior': None,
+                        'boundary': None
+                    }
+                    self.update_results()
+                else:
+                    print("Warning: Adding vertex failed to maintain convexity.")
+            elif len(self.vertices) == 2:
+                # For a line segment, just add a third point to make a triangle
+                p1 = self.vertices[0]
+                p2 = self.vertices[1]
+                midpoint = (p1 + p2) / 2
+                # Create a new point perpendicular to the line
+                direction = p2 - p1
+                perpendicular = np.array([-direction[1], direction[0]])  # 90-degree rotation
+                perpendicular = perpendicular / np.linalg.norm(perpendicular) * 0.5  # normalize and scale
+                
+                new_vertex = midpoint + perpendicular
                 self.vertices = np.vstack([self.vertices, new_vertex])
                 
                 # Update visualization
                 self.update_vertex_points()
                 self.update_polygon()
-                # Reset Monte Carlo results since polygon changed
-                self.mc_results = {'interior': None, 'boundary': None}
+                # Reset results
+                self.mc_results = {
+                    'interior_proj': None, 
+                    'boundary_proj': None,
+                    'interior_avg': None,
+                    'boundary_avg': None
+                }
+                self.avg_distances = {
+                    'interior': None,
+                    'boundary': None
+                }
                 self.update_results()
     
     def remove_vertex(self, event):
@@ -380,7 +554,17 @@ class InteractivePolygonProjection:
             self.update_vertex_points()
             self.update_polygon()
             # Reset Monte Carlo results since polygon changed
-            self.mc_results = {'interior': None, 'boundary': None}
+            self.mc_results = {
+                'interior_proj': None, 
+                'boundary_proj': None,
+                'interior_avg': None,
+                'boundary_avg': None
+            }
+            # Reset average distances
+            self.avg_distances = {
+                'interior': None,
+                'boundary': None
+            }
             self.update_results()
     
     def on_press(self, event):
@@ -413,14 +597,30 @@ class InteractivePolygonProjection:
             return
         
         if self.selected_vertex is not None:
-            # If vertex was being dragged, reset Monte Carlo results
-            self.mc_results = {'interior': None, 'boundary': None}
+            # If vertex was being dragged, reset Monte Carlo results and average distances
+            self.mc_results = {
+                'interior_proj': None, 
+                'boundary_proj': None,
+                'interior_avg': None,
+                'boundary_avg': None
+            }
+            # Reset average distances because polygon changed
+            self.avg_distances = {
+                'interior': None,
+                'boundary': None
+            }
             self.selected_vertex = None
             # Update results
             self.update_results()
         elif (self.dragging_direction_start or self.dragging_direction_end):
-            # If direction was being changed, reset Monte Carlo results
-            self.mc_results = {'interior': None, 'boundary': None}
+            # If direction was being changed, reset only Monte Carlo results
+            # (average distances don't need to be recalculated since they're independent of direction)
+            self.mc_results = {
+                'interior_proj': None, 
+                'boundary_proj': None,
+                'interior_avg': None,
+                'boundary_avg': None
+            }
             self.dragging_direction_start = False
             self.dragging_direction_end = False
             # Update results
@@ -432,30 +632,53 @@ class InteractivePolygonProjection:
             return
         
         update_needed = False
+        reset_avg_distances = False
         
         if self.selected_vertex is not None:
-            # Update vertex position
-            self.vertices[self.selected_vertex] = [event.xdata, event.ydata]
-            self.vertex_points[self.selected_vertex].set_data(
-                [event.xdata], [event.ydata]
-            )
-            self.update_polygon()
-            update_needed = True
+            # Store the original vertex position in case we need to revert
+            original_position = self.vertices[self.selected_vertex].copy()
+            
+            # Try updating the vertex position
+            temp_vertices = self.vertices.copy()
+            temp_vertices[self.selected_vertex] = [event.xdata, event.ydata]
+            
+            # Check if the new polygon would be convex
+            if is_convex(temp_vertices):
+                # Update vertex position since the result would be convex
+                self.vertices[self.selected_vertex] = [event.xdata, event.ydata]
+                self.vertex_points[self.selected_vertex].set_data(
+                    [event.xdata], [event.ydata]
+                )
+                self.update_polygon()
+                update_needed = True
+                # When polygon vertices change, we need to reset average distances
+                reset_avg_distances = True
+            else:
+                # Revert to original position
+                self.vertices[self.selected_vertex] = original_position
         
         elif self.dragging_direction_start:
             # Update direction start point
             self.direction_start = np.array([event.xdata, event.ydata])
             self.update_direction()
             update_needed = True
+            # Direction change doesn't require recalculating average distances
             
         elif self.dragging_direction_end:
             # Update direction end point
             self.direction_end = np.array([event.xdata, event.ydata])
             self.update_direction()
             update_needed = True
+            # Direction change doesn't require recalculating average distances
             
         # Update results while dragging for real-time feedback
         if update_needed:
+            # If polygon changes, reset average distances to force recalculation
+            if reset_avg_distances:
+                self.avg_distances = {
+                    'interior': None,
+                    'boundary': None
+                }
             self.update_results()
     
     def show(self):
