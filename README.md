@@ -19,7 +19,10 @@ Both approaches yield interesting mathematical properties that can be explored t
 - **edge_projection.py**: Analytical and sampling methods for boundary points
 - **piecewise_integration.py**: High-accuracy integration for piecewise smooth functions with kink points
 - **interactive_projection.py**: Interactive visualization tool with real-time computations
-- **test_polygon_projection.py**: Comprehensive test suite validating the mathematical implementations
+- **tests/**: Directory containing all test files
+  - **test_polygon_projection.py**: Test suite for projection functionality
+  - **test_average_distances.py**: Test suite comparing Monte Carlo with exact integration methods
+  - Additional test files for verification and benchmarking
 
 ## Mathematical Background
 
@@ -73,7 +76,12 @@ python interactive_projection.py
 ### Running Tests
 
 ```bash
-pytest test_polygon_projection.py
+# Run all tests
+pytest tests/
+
+# Run specific test files
+pytest tests/test_polygon_projection.py
+pytest tests/test_average_distances.py
 ```
 
 ## Demonstration
