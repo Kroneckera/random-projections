@@ -17,6 +17,7 @@ Both approaches yield interesting mathematical properties that can be explored t
 - **polygon_projection.py**: Unified high-level API for polygon projections
 - **projection_sampling.py**: Analytical and sampling methods for interior points
 - **edge_projection.py**: Analytical and sampling methods for boundary points
+- **piecewise_integration.py**: High-accuracy integration for piecewise smooth functions with kink points
 - **interactive_projection.py**: Interactive visualization tool with real-time computations
 - **test_polygon_projection.py**: Comprehensive test suite validating the mathematical implementations
 
@@ -26,6 +27,7 @@ For a convex polygon and a direction vector, the tool calculates:
 
 - The exact probability density function of projections
 - The exact expected absolute difference E[|X-Y|] between two random points' projections
+- High-accuracy numerical integration using Gauss-Legendre quadrature
 - Polygon geometric properties (area and perimeter)
 - Monte Carlo approximations of expected distances with configurable sample sizes
 
