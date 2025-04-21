@@ -11,15 +11,15 @@ import sys
 import numpy as np
 from enum import Enum
 
-# Add the legacy directory to sys.path
-legacy_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'legacy')
-sys.path.insert(0, legacy_dir)
+# Add the polygon-projection Python modules to the path
+module_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'python')
+sys.path.insert(0, module_dir)
 
-# Import legacy modules directly
-import polygon_projection as legacy_pp
-import projection_sampling as legacy_ps
-import edge_projection as legacy_ep
-import piecewise_integration as legacy_pi
+# Import from polygon_projection.legacy
+from polygon_projection.legacy import polygon_projection as legacy_pp
+from polygon_projection.legacy import projection_sampling as legacy_ps
+from polygon_projection.legacy import edge_projection as legacy_ep
+from polygon_projection.legacy import piecewise_integration as legacy_pi
 
 def main():
     """Run tests directly using the legacy code."""
