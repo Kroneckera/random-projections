@@ -2,7 +2,7 @@
 """
 piecewise_integration.py
 
-High‑accuracy integration of a \pi‑periodic integrand that is
+High‑accuracy integration of a π‑periodic integrand that is
 piecewise smooth but may have finitely many kink points (first–derivative
 discontinuities) determined by a convex polygon.
 
@@ -56,7 +56,7 @@ def break_angles(vertices, tol=1e-12):
 
 def expected_distance_interior_exact(vertices, f, order=16):
     """
-    Integrate f(vertices, theta) over theta in [0,pi] accounting for kinks.
+    Integrate f(vertices, theta) over theta in [0,π] accounting for kinks.
 
     Parameters
     ----------
@@ -66,7 +66,7 @@ def expected_distance_interior_exact(vertices, f, order=16):
 
     Returns
     -------
-    integral : float  (\int_0^{pi} f(theta) dtheta)
+    integral : float  (∫₀^π f(theta) dtheta)
     """
     # 1. break points
     bks = break_angles(vertices)
