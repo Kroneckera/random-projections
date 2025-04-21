@@ -39,7 +39,6 @@ polygon-projection/
 │       ├── api.py        # API definitions
 │       ├── fallback.py   # Pure Python fallback implementation
 │       └── legacy/       # Legacy Python code for fallback
-├── legacy/               # Original Python implementation (deprecated)
 ├── examples/             # Example usage
 ├── tests/                # Test suite
 │   ├── cpp/              # C++ tests
