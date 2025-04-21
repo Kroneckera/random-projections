@@ -1,4 +1,4 @@
-# Polygon Projection
+# Random Projections
 
 A high-performance library for calculating projections and expected distances between points in convex polygons, with both exact analytical solutions and Monte Carlo approximations.
 
@@ -30,21 +30,21 @@ These calculations are performed for both:
 ## Project Structure
 
 ```
-polygon-projection/
-├── include/              # C++ header files
-├── src/                  # C++ implementation files
-├── python/               # Python bindings & fallback implementation
-│   └── polygon_projection/
-│       ├── __init__.py   # Package initialization
-│       ├── api.py        # API definitions
-│       ├── fallback.py   # Pure Python fallback implementation
-│       └── legacy/       # Legacy Python code for fallback
-├── examples/             # Example usage
-├── tests/                # Test suite
-│   ├── cpp/              # C++ tests
-│   ├── python/           # Python tests
-│   └── api/              # API tests
-└── docs/                 # Documentation
+random-projections/
+├── cpp/               # All C++ code 
+│   ├── include/       # C++ headers
+│   ├── src/           # C++ implementations
+│   └── tests/         # C++ tests
+├── python/            # All Python code
+│   ├── projection/    # Main Python package 
+│   │   ├── __init__.py
+│   │   ├── api.py
+│   │   ├── fallback.py
+│   │   └── legacy/    # Legacy code for fallback
+│   ├── tests/         # Python tests 
+│   └── examples/      # Python examples
+├── docs/              # Documentation
+└── scripts/           # Build and utility scripts
 ```
 
 ## Quick Start
@@ -60,16 +60,16 @@ cd random-projections
 pip install numpy matplotlib
 
 # Add the package to your Python path
-export PYTHONPATH=$PYTHONPATH:$(pwd)/polygon-projection/python
+export PYTHONPATH=$PYTHONPATH:$(pwd)/python
 ```
 
 ### Basic Usage
 
 ```python
 import sys
-sys.path.insert(0, './polygon-projection/python')
+sys.path.insert(0, './python')
 
-from polygon_projection.api import Polygon, Region, ProjectionCalculator
+from projection import Polygon, Region, ProjectionCalculator
 
 # Create a regular hexagon
 hexagon = Polygon.regular(sides=6, radius=1.0)
@@ -90,6 +90,10 @@ monte_carlo = calc.projected_distance(exact=False, samples=10000)
 print(f"Monte Carlo estimate: {monte_carlo:.6f}")
 ```
 
+For more examples, see the sample scripts in the `python/examples/` directory:
+- `basic_usage.py`: Simple demonstration of the core functionality
+- `use_polygon.py`: More comprehensive example with visualization
+
 ### Running the Interactive Tool
 
 The interactive visualization tool allows you to:
@@ -108,7 +112,7 @@ The C++ implementation provides high-performance calculations and is used by def
 
 ```bash
 # Create build directory
-mkdir -p polygon-projection/build && cd polygon-projection/build
+mkdir -p build && cd build
 
 # Configure and build
 cmake ..
@@ -117,15 +121,15 @@ cmake --build .
 
 ## Python Fallback Implementation
 
-If the C++ implementation is not available, the library automatically falls back to a pure Python implementation based on the legacy code. This ensures the library works across all platforms but will be significantly slower.
+If the C++ implementation is not available, the library automatically falls back to a pure Python implementation. This ensures the library works across all platforms but will be significantly slower.
 
 You can force the use of the fallback implementation:
 
 ```python
 import os
-os.environ["POLYGON_PROJECTION_FORCE_FALLBACK"] = "1"
+os.environ["PROJECTION_FORCE_FALLBACK"] = "1"
 
-import polygon_projection as pp
+import projection as pp
 # Now uses Python fallback implementation
 ```
 
@@ -153,12 +157,13 @@ import polygon_projection as pp
 ## Testing
 
 ```bash
-# Run API tests
-cd polygon-projection/tests/api
-python test_fallback_api.py
+# Run Python tests
+cd random-projections
+pytest python/tests
 
-# Run legacy implementation tests
-python test_legacy_fallback.py
+# Run C++ tests (after build)
+cd build
+ctest
 ```
 
 ## Performance Considerations
@@ -173,9 +178,11 @@ The C++ implementation is significantly faster than the Python fallback:
 
 For performance-critical applications, building the C++ extension is strongly recommended.
 
-## Development Status
+## Development
 
-The project is functional with both C++ and Python implementations. The C++ implementation is complete but has some known issues with Python bindings. The Python fallback implementation provides 100% of the functionality but with reduced performance.
+For development:
+- See documentation in the `docs/` directory
+- For build system details, see `docs/BUILD_SYSTEM_SUMMARY.md`
 
 ## License
 

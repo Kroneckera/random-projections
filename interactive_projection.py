@@ -17,8 +17,8 @@ from matplotlib.lines import Line2D
 from matplotlib.widgets import Button, RadioButtons, Slider
 import matplotlib.gridspec as gridspec
 import sys
-sys.path.append('/Users/azimin/Programming/random_proj/polygon-projection/python')
-from polygon_projection import Polygon, Region, ProjectionCalculator, is_convex
+sys.path.append('/Users/azimin/Programming/random_proj/random-projections/python')
+from projection import Polygon, Region, ProjectionCalculator, is_convex, using_cpp_backend
 import threading
 import time
 import queue
@@ -329,7 +329,7 @@ class InteractivePolygonProjection:
         self.update_results()
         
         # Add a title for the application
-        self.fig.suptitle('Interactive Polygon Projection Calculator', fontsize=16)
+        self.fig.suptitle('Interactive Random Projections Calculator', fontsize=16)
         plt.subplots_adjust(top=0.9, bottom=0.1, left=0.05, right=0.95)
     
     def update_vertex_points(self):
