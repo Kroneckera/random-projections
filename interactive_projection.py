@@ -16,7 +16,9 @@ from matplotlib.patches import Polygon as MplPolygon, Rectangle
 from matplotlib.lines import Line2D
 from matplotlib.widgets import Button, RadioButtons, Slider
 import matplotlib.gridspec as gridspec
-from polygon_projection import PolygonProjection, PolygonRegion, generate_regular_polygon
+import sys
+sys.path.append('/Users/azimin/Programming/random_proj/polygon-projection/python')
+from polygon_projection import Polygon, Region, ProjectionCalculator, is_convex
 import threading
 import time
 import queue
@@ -91,52 +93,7 @@ class SimpleProgressBar:
         self.ax.figure.canvas.draw_idle()
 
 
-def is_convex(vertices):
-    """
-    Check if a polygon is convex by verifying that all interior angles are less than 180 degrees.
-    Uses the cross product to check if all vertices are making "right turns" or all making "left turns".
-    
-    Parameters
-    ----------
-    vertices : array_like, shape (n,2)
-        CCW-ordered polygon vertices.
-        
-    Returns
-    -------
-    bool
-        True if the polygon is convex, False otherwise.
-    """
-    # Need at least 3 vertices to form a polygon
-    if len(vertices) < 3:
-        return True  # Degenerate case
-        
-    # Compute the cross product for each set of three consecutive vertices
-    n = len(vertices)
-    # Initialize sign of first cross product
-    dx1 = vertices[1][0] - vertices[0][0]
-    dy1 = vertices[1][1] - vertices[0][1]
-    dx2 = vertices[2][0] - vertices[1][0]
-    dy2 = vertices[2][1] - vertices[1][1]
-    cross_z = dx1 * dy2 - dy1 * dx2
-    sign = 1 if cross_z > 0 else -1 if cross_z < 0 else 0
-    
-    # Check all other cross products
-    for i in range(1, n):
-        dx1 = vertices[(i+1) % n][0] - vertices[i][0]
-        dy1 = vertices[(i+1) % n][1] - vertices[i][1]
-        dx2 = vertices[(i+2) % n][0] - vertices[(i+1) % n][0]
-        dy2 = vertices[(i+2) % n][1] - vertices[(i+1) % n][1]
-        cross_z = dx1 * dy2 - dy1 * dx2
-        
-        # If sign changes, the polygon is not convex
-        curr_sign = 1 if cross_z > 0 else -1 if cross_z < 0 else 0
-        if curr_sign != 0 and sign != 0 and curr_sign != sign:
-            return False
-        # Update sign if it was previously 0
-        if sign == 0 and curr_sign != 0:
-            sign = curr_sign
-    
-    return True
+# Using the is_convex function directly from the API
 
 
 class InteractivePolygonProjection:
@@ -190,7 +147,8 @@ class InteractivePolygonProjection:
         self.ax_controls.axis('off')
         
         # Polygon initialization - standard regular hexagon
-        self.vertices = generate_regular_polygon(n_sides=6, radius=2.0)
+        polygon = Polygon.regular(sides=6, radius=2.0)
+        self.vertices = polygon.vertices
         self.polygon_patch = MplPolygon(
             self.vertices, alpha=0.2, fc='b', ec='blue', zorder=1
         )
@@ -435,20 +393,25 @@ class InteractivePolygonProjection:
     def calculate_average_distances(self):
         """Calculate exact average distances for both interior and boundary."""
         if len(self.vertices) >= 3:
+            # Create polygon
+            polygon = Polygon(self.vertices)
+            
             # Interior
-            interior_proj = PolygonProjection(
-                self.vertices, self.direction, 
-                region=PolygonRegion.INTERIOR
+            interior_calc = ProjectionCalculator(
+                polygon=polygon,
+                direction=self.direction,
+                region=Region.INTERIOR
             )
             # Boundary
-            boundary_proj = PolygonProjection(
-                self.vertices, self.direction, 
-                region=PolygonRegion.BOUNDARY
+            boundary_calc = ProjectionCalculator(
+                polygon=polygon,
+                direction=self.direction,
+                region=Region.BOUNDARY
             )
             
             # Store the results
-            self.avg_distances['interior'] = interior_proj.average_distance_exact()
-            self.avg_distances['boundary'] = boundary_proj.average_distance_exact()
+            self.avg_distances['interior'] = interior_calc.average_distance(exact=True)
+            self.avg_distances['boundary'] = boundary_calc.average_distance(exact=True)
     
     def process_results_queue(self):
         """Process any results in the queue and update the UI safely (called by timer on main thread)"""
@@ -493,16 +456,21 @@ class InteractivePolygonProjection:
             log_val = self.samples_slider.val
             self.n_samples = int(10**log_val)
             
-            # Initialize PolygonProjection objects
-            interior_proj = PolygonProjection(
-                self.vertices.copy(), self.direction.copy(), 
-                region=PolygonRegion.INTERIOR,
-                seed=42
+            # Create polygon
+            polygon = Polygon(self.vertices.copy())
+            
+            # Initialize ProjectionCalculator objects
+            interior_calc = ProjectionCalculator(
+                polygon=polygon,
+                direction=self.direction.copy(),
+                region=Region.INTERIOR,
+                random_seed=42
             )
-            boundary_proj = PolygonProjection(
-                self.vertices.copy(), self.direction.copy(), 
-                region=PolygonRegion.BOUNDARY,
-                seed=43
+            boundary_calc = ProjectionCalculator(
+                polygon=polygon,
+                direction=self.direction.copy(),
+                region=Region.BOUNDARY,
+                random_seed=43
             )
             
             # Calculate batch size based on total samples
@@ -510,13 +478,13 @@ class InteractivePolygonProjection:
             yield_interval = 2  # Yield after processing every 2 batches
             
             # Create generators for interior and boundary calculations
-            interior_generator = interior_proj.monte_carlo_generator(
-                n_samples=self.n_samples, 
+            interior_generator = interior_calc.monte_carlo_analysis(
+                samples=self.n_samples, 
                 batch_size=batch_size,
                 yield_interval=yield_interval
             )
-            boundary_generator = boundary_proj.monte_carlo_generator(
-                n_samples=self.n_samples,
+            boundary_generator = boundary_calc.monte_carlo_analysis(
+                samples=self.n_samples,
                 batch_size=batch_size,
                 yield_interval=yield_interval
             )
@@ -658,19 +626,24 @@ class InteractivePolygonProjection:
         try:
             # If we have at least 3 vertices and a valid direction
             if len(self.vertices) >= 3 and np.linalg.norm(self.direction) > 0:
-                # Create projection objects for both regions
-                interior_proj = PolygonProjection(
-                    self.vertices, self.direction, 
-                    region=PolygonRegion.INTERIOR
+                # Create polygon
+                polygon = Polygon(self.vertices)
+                
+                # Create projection calculators for both regions
+                interior_calc = ProjectionCalculator(
+                    polygon=polygon,
+                    direction=self.direction,
+                    region=Region.INTERIOR
                 )
-                boundary_proj = PolygonProjection(
-                    self.vertices, self.direction, 
-                    region=PolygonRegion.BOUNDARY
+                boundary_calc = ProjectionCalculator(
+                    polygon=polygon,
+                    direction=self.direction,
+                    region=Region.BOUNDARY
                 )
                 
                 # Calculate exact expected distances for projection
-                interior_exact_proj = interior_proj.exact_expected_distance()
-                boundary_exact_proj = boundary_proj.exact_expected_distance()
+                interior_exact_proj = interior_calc.projected_distance(exact=True)
+                boundary_exact_proj = boundary_calc.projected_distance(exact=True)
                 
                 # Calculate or update average distances
                 if self.avg_distances['interior'] is None or self.avg_distances['boundary'] is None:
@@ -680,8 +653,8 @@ class InteractivePolygonProjection:
                 boundary_exact_avg = self.avg_distances['boundary']
                 
                 # Calculate polygon properties
-                area = interior_proj.get_area()
-                perimeter = interior_proj.get_perimeter()
+                area = polygon.area
+                perimeter = polygon.perimeter
                 
                 # Format results for display
                 results_str = (
@@ -750,7 +723,8 @@ class InteractivePolygonProjection:
     
     def reset_polygon(self, event):
         """Reset to a regular hexagon."""
-        self.vertices = generate_regular_polygon(n_sides=6, radius=2.0)
+        polygon = Polygon.regular(sides=6, radius=2.0)
+        self.vertices = polygon.vertices
         
         self.update_vertex_points()
         self.update_polygon()
@@ -805,6 +779,7 @@ class InteractivePolygonProjection:
                 )
                 
                 # Ensure the result is convex (should always be the case with this method)
+                # Using the API function to check convexity
                 if is_convex(new_vertices):
                     self.vertices = new_vertices
                     
@@ -963,6 +938,7 @@ class InteractivePolygonProjection:
             temp_vertices[self.selected_vertex] = [event.xdata, event.ydata]
             
             # Check if the new polygon would be convex
+            # Using the API function to check convexity
             if is_convex(temp_vertices):
                 # Update vertex position since the result would be convex
                 self.vertices[self.selected_vertex] = [event.xdata, event.ydata]

@@ -1,0 +1,10 @@
+# Python dependencies for polygon-projection
+
+# Required for runtime
+numpy>=1.17.0
+
+# Required for building
+pybind11>=2.6.0
+
+# Optional for testing
+pytest>=6.0.0
