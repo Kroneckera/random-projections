@@ -13,7 +13,7 @@ import numpy as np
 os.environ["POLYGON_PROJECTION_FORCE_FALLBACK"] = "1"
 
 # Add the polygon-projection module to the path
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'polygon-projection', 'python'))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'python'))
 
 # Import polygon_projection module - should use the fallback implementation
 try:

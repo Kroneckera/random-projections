@@ -12,7 +12,7 @@ import numpy as np
 from enum import Enum
 
 # Add the legacy directory to sys.path
-legacy_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'legacy')
+legacy_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'legacy')
 sys.path.insert(0, legacy_dir)
 
 # Import legacy modules directly
